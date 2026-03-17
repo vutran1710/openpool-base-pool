@@ -14,17 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse and commit registration
+      - name: Download regcrypt
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
+          chmod +x regcrypt
+
+      - name: Parse and register
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_AUTHOR_ID: ${{ github.event.issue.user.id }}
           POOL_SALT: ${{ secrets.POOL_SALT }}
+          REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          # First line = hex blob
+          # First line = hex blob, extract pubkey from blob header (first 64 hex chars = 32 bytes)
           BLOB_HEX=$(echo "$ISSUE_BODY" | head -1 | tr -d '[:space:]')
 
           if [ -z "$BLOB_HEX" ]; then
@@ -39,30 +45,47 @@ jobs:
             exit 1
           fi
 
-          # Compute filename: SHA256(salt:repo:github:author_id)[:16]
-          REPO="${{ github.repository }}"
-          USER_HASH=$(echo -n "${POOL_SALT}:${REPO}:github:${ISSUE_AUTHOR_ID}" | sha256sum | cut -c1-16)
+          # Extract pubkey from blob (first 32 bytes = 64 hex chars)
+          PUB_KEY=$(echo "$BLOB_HEX" | cut -c1-64)
 
-          # Check if user already registered (update if so)
-          if [ -f "users/${USER_HASH}.bin" ]; then
-            echo "::notice::User ${USER_HASH} already registered, updating profile"
-          fi
+          # Compute hashes + encrypt for user
+          OUTPUT=$(./regcrypt \
+            --pool-url "$REPO" \
+            --provider "github" \
+            --user-id "$ISSUE_AUTHOR_ID" \
+            --salt "$POOL_SALT" \
+            --user-pubkey "$PUB_KEY")
 
-          # Convert hex blob to binary and write .bin file
+          BIN_HASH=$(echo "$OUTPUT" | head -1)
+          ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
+
+          # Post encrypted hashes as comment (CLI will poll for this)
+          gh issue comment "$ISSUE_NUMBER" --body "$ENCRYPTED_BLOB"
+
+          # Write .bin file
           mkdir -p users
-          echo "$BLOB_HEX" | xxd -r -p > "users/${USER_HASH}.bin"
+          echo "$BLOB_HEX" | xxd -r -p > "users/${BIN_HASH}.bin"
 
           # Commit and push
           git config user.name "dating-bot"
           git config user.email "bot@dating-pool.dev"
-          git add "users/${USER_HASH}.bin"
-          git commit -m "Register user ${USER_HASH}"
+          git add "users/${BIN_HASH}.bin"
+          git commit -m "Register user ${BIN_HASH}"
           git push
 
       - name: Close issue
+        if: success()
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close "$ISSUE_NUMBER" --reason completed
-          gh issue comment "$ISSUE_NUMBER" --body "Registration processed successfully."
+
+      - name: Handle failure
+        if: failure()
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "Registration failed. Please retry."
+          gh issue close "$ISSUE_NUMBER" --reason "not planned"
