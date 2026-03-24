@@ -1,65 +1,56 @@
-# dating-test-pool
+# <3 dating test
 
-Test pool repo for [dating.dev](https://dating.dev) — a decentralized, terminal-native dating platform.
+Test pool for [dating.dev](https://dating.dev) — decentralized, terminal-native matching.
 
 ## Structure
 
 ```
-pool.json                        Pool metadata + operator public key
-users/{hash}.bin                 Encrypted user profiles
-matches/{pair_hash}/             Matched pairs
-relationships/{pair_hash}/       Committed relationships
-.github/workflows/register.yml   Processes registration issues
+pool.yaml                        Pool config (schema, roles, indexing, interest expiry)
+users/{bin_hash}.bin             Encrypted profiles: [32B pubkey][NaCl box profile]
+matches/{pair_hash}.json         Match files (mutual interest confirmed)
+.github/workflows/
+  pool-register.yml              Process registration issues
+  pool-interest.yml              Process interest issues (ephemeral hash titles)
+  pool-unmatch.yml               Process unmatch issues
+  pool-indexer.yml               Cron: build chain-encrypted index.db
+  pool-squash.yml                Cron: squash history + close stale interests
 ```
 
-## pool.json
+## pool.yaml
 
-```json
-{
-  "name": "test-pool",
-  "description": "A test dating pool for development",
-  "version": 1,
-  "created_at": "2026-03-15T00:00:00Z",
-  "operator_public_key": "<hex-encoded ed25519 public key>",
-  "relay_url": "wss://relay.example.com"
-}
+Defines profile attributes, roles, discovery config, and interest expiry:
+
+```yaml
+name: "<3 dating test"
+relay_url: wss://relay.example.com
+operator_public_key: c251e2cf...
+interest_expiry: 3d
+
+profile:
+  age: { type: range, min: 18, max: 100 }
+  interests: { type: multi, values: hiking, coding, music, ... }
+  about: { type: text, required: false }
+  phone: { type: text, visibility: private }
+
+roles: [man, woman]
+
+indexing:
+  partitions: [{ field: role }]
+  permutations: 5
+  difficulty: 20
 ```
 
-## .bin Format
+## Secrets (GitHub Actions)
 
-```
-[32 bytes ed25519 public key][NaCl box encrypted profile data]
-```
+| Secret | Purpose |
+|--------|---------|
+| `OPERATOR_PRIVATE_KEY` | ed25519 private key (128 hex) for decrypting profiles |
+| `POOL_SALT` | Secret salt for hash chain derivation |
 
-The profile data is encrypted to the **operator's public key** (from `pool.json`). Only the relay server, which holds the operator's private key, can decrypt profiles. During discovery, the relay decrypts a profile and re-encrypts it for the requesting user.
+## How It Works
 
-The first 32 bytes (the user's public key) are used by the relay for challenge-response authentication over WebSocket.
-
-## How Users Join
-
-1. User runs `dating pool join <pool-name>` from the CLI
-2. OAuth authenticates the user (GitHub or Google)
-3. CLI generates a local ed25519 keypair
-4. CLI encrypts the profile to the operator's public key (NaCl box)
-5. CLI opens a **GitHub Issue** with the encrypted blob, public key, and signature
-6. A **GitHub Action** processes the issue, commits `users/{hash}.bin`, and closes the issue
-7. User is now registered — can discover, match, and chat
-
-No fork required. No shared PAT. Users only need a GitHub account to open an issue.
-
-## How Matching Works
-
-- `dating like <hash>` creates a PR with both profiles in `matches/{pair_hash}/`
-- `dating accept <pr>` merges the PR — match is established
-- `dating commit propose <hash>` creates a PR to `relationships/{pair_hash}/`
-
-## Security
-
-| Layer | Mechanism |
-|-------|-----------|
-| Identity | ed25519 key pairs, generated locally |
-| User hash | `SHA256(pool_repo:provider:provider_user_id)` |
-| Profile data | NaCl box encrypted to **operator pubkey** |
-| Discovery | Relay re-encrypts per-request |
-| Registration | GitHub Issue → Action commits (automated) |
-| Relay auth | Pubkey from `.bin`, nonce challenge-response |
+1. **Register**: User creates issue → Action validates profile against schema, commits `.bin`
+2. **Discover**: Indexer builds chain-encrypted `index.db` → client grinds to unlock profiles
+3. **Interest**: User creates issue with ephemeral hash title → Action detects mutual interest
+4. **Chat**: Relay authenticates via TOTP, routes E2E encrypted messages
+5. **Unmatch**: User creates issue → Action deletes match file
