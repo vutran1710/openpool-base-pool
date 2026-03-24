@@ -1,5 +1,5 @@
-name: "<3 dating test"
-description: test dating pool for development
+name: "<3 dating"
+description: "Terminal-native dating for developers who live in the terminal"
 relay_url: wss://relay-production-0b24.up.railway.app
 operator_public_key: c251e2cfed99670640ce987fd95b1eb51e319a12971fe68fdffae40f13f1137f
 interest_expiry: 3d
