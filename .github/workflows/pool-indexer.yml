@@ -1,0 +1,34 @@
+name: Rebuild Index
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download action-tool
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/action-tool-linux-amd64 -o action-tool
+          chmod +x action-tool
+
+      - name: Rebuild and upload index
+        env:
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./action-tool index \
+            --schema pool.yaml \
+            --operator-key "$OPERATOR_PRIVATE_KEY" \
+            --salt "$POOL_SALT" \
+            --users-dir users/ \
+            --output index.db \
+            --upload

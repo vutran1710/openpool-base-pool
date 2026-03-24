@@ -1,0 +1,26 @@
+name: "<3 dating test"
+description: test dating pool for development
+relay_url: wss://relay-production-0b24.up.railway.app
+operator_public_key: c251e2cfed99670640ce987fd95b1eb51e319a12971fe68fdffae40f13f1137f
+
+profile:
+  age:
+    type: range
+    min: 18
+    max: 100
+  interests:
+    type: multi
+    values: hiking, coding, music, travel, food, photography, gaming, reading
+  about:
+    type: text
+    required: false
+  phone:
+    type: text
+    visibility: private
+    required: false
+
+roles:
+  - man
+  - woman
+
+interest_expiry: 3d
